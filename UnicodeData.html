@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Unicode Data</title>
+    <script type="text/javascript" src="UnicodeData.js">
+    </script>
+    <script type="text/javascript">
+      // <![CDATA[
+        var unicodeData;    // should be initialized by UnicodeData.js
+
+        let txtSearch;
+        let txtToCopy;
+        let table;
+        let rowsArray;
+        let pNumCharsFound;
+
+        function charCodeToString(charCode) {
+          if (charCode < 0x10000) {
+            return String.fromCharCode(charCode);
+          } else {
+            return String.fromCharCode(
+              0xD800 + ((charCode - 0x10000) >> 10),
+              0xDC00 + (charCode & 0x3FF)
+            );
+          }
+        }
+
+        function stringToCharCode(string) {
+          if (string === '') {
+            return 0;
+          }
+          let first = string.charCodeAt(0);
+          if (string.length >= 2) {
+            let second = string.charCodeAt(1);
+            if (first >= 0xD800 && first <= 0xDBFF
+                && second >= 0xDC00 && second <= 0xDFFF
+            ) {
+              return 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+            }
+          }
+          return first;
+        }
+
+        function charCodeToULabel(charCode) {
+          let hex = charCode.toString(16).toUpperCase();
+          if (hex.length < 4) {
+            hex = '0000'.substring(hex.length) + hex;
+          }
+          return 'U+' + hex;
+        }
+
+        function normalizeSearchQuery(rawQuery) {
+          if (rawQuery.search(/^[^-0-9A-Za-z+]{1,2}$/) === 0) {
+            return [charCodeToULabel(stringToCharCode(rawQuery))];
+          }
+
+          return (
+            rawQuery.toUpperCase()
+                    .replace(/[^-0-9A-Z+]+/g, ' ')
+                    .trim()
+                    .split(' ')
+          );
+        }
+
+        let currSearchQuery = ' '; // not a possible normalized query
+
+        function continueApplyingSearchQuery(
+            searchQuery, rowNumToStart, numCharsFoundSoFar) {
+
+          if (searchQuery.join(',') !== currSearchQuery) {
+            return; // abort -- superseded
+          }
+
+          let rowNum;
+          for (let i = 0; i < 50; ++i) {
+            rowNum = rowNumToStart + i;
+            if (rowNum >= rowsArray.length) {
+              break;
+            }
+
+            let row = rowsArray[rowNum];
+            row.className = 'empty';
+            CELL: for (let colNum = 0; colNum < row.$cells.length; ++colNum) {
+              let cell = row.$cells[colNum];
+              if (! cell.$charCode) {
+                continue;
+              }
+              cell.className = 'faded';
+              for (let j = 0; j < searchQuery.length; ++j) {
+                if (cell.title.indexOf(searchQuery[j]) === -1) {
+                  continue CELL;
+                }
+              }
+              ++numCharsFoundSoFar;
+              cell.className = '';
+              row.className = '';
+            }
+          }
+
+          if (rowNumToStart < rowsArray.length) {
+            window.setTimeout(function () {
+              continueApplyingSearchQuery(
+                searchQuery, rowNum, numCharsFoundSoFar);
+            }, 0, false);
+          } else {
+            pNumCharsFound.innerText =
+              'Found ' + numCharsFoundSoFar + ' character(s) ' +
+              ' (out of ' + unicodeData.length + ').';
+          }
+        }
+
+        function doSearch() {
+          let searchQuery = normalizeSearchQuery(txtSearch.value);
+
+          if (searchQuery.join(',') === currSearchQuery) {
+            return;
+          }
+          currSearchQuery = searchQuery.join(',');
+
+          continueApplyingSearchQuery(searchQuery, 0, 0);
+        }
+
+        function handleCharClickEvent(event) {
+          var td = event.target;
+          txtToCopy.setRangeText(
+            charCodeToString(td.$charCode),
+            txtToCopy.selectionStart,
+            txtToCopy.selectionEnd,
+            'end'
+          );
+          txtToCopy.focus();
+        }
+
+        window.addEventListener('load', function () {
+          if (! unicodeData || ! unicodeData.length) {
+            alert("Failed to load Unicode character data");
+          }
+
+          txtSearch = document.getElementById('txtSearch');
+          txtToCopy = document.getElementById('txtToCopy');
+          table = document.getElementById('table');
+          pNumCharsFound = document.getElementById('pNumCharsFound');
+
+          txtToCopy.selectionStart = txtToCopy.value.length;
+          txtToCopy.selectionEnd = txtToCopy.value.length;
+
+          let headerRow = document.createElement('tr');
+          for (let i = 0; i < 2; ++i) {
+            let td = document.createElement('td');
+            td.className = 'empty rowId';
+            headerRow.appendChild(td);
+            for (let j = 0; j < 16; ++j) {
+              let th = document.createElement('th');
+              th.appendChild(
+                document.createTextNode(j.toString(16).toUpperCase()));
+              headerRow.appendChild(th);
+            }
+          }
+          table.appendChild(headerRow);
+
+          rowsArray = []; // for iteration
+          let rows = {}; // for lookup; not [] because too big
+          for (let i = 0; i < unicodeData.length; ++i) {
+            let indexOfSpace = unicodeData[i].indexOf(' ');
+            let charCode = parseInt(
+              unicodeData[i].substring(2, unicodeData[i].indexOf(' ')), 16);
+            let rowId = (charCode - charCode % 32) / 16;
+            let colNum = charCode % 32;
+            let tr = rows[rowId];
+            if (! tr) {
+              tr = document.createElement('tr');
+              rows[rowId] = tr;
+              rowsArray.push(tr);
+              tr.$cells = [];
+              for (let i = 0; i < 2; ++i) {
+                let th = document.createElement('th');
+                th.className = 'rowId';
+                th.appendChild(document.createTextNode(
+                  charCodeToULabel((rowId+i)*16).replace(/.$/, '_')
+                ));
+                tr.appendChild(th);
+                for (let j = 0; j < 16; ++j) {
+                  let td = document.createElement('td');
+                  td.className = 'empty';
+                  tr.appendChild(td);
+                  tr.$cells.push(td);
+                }
+              }
+              tr.className = 'empty';
+              table.appendChild(tr);
+            }
+            let td = tr.$cells[colNum];
+            td.appendChild(
+              document.createTextNode(charCodeToString(charCode)));
+            td.title = unicodeData[i];
+            td.className = '';
+            td.$charCode = charCode;
+            td.addEventListener('click', handleCharClickEvent, false);
+          }
+
+          txtSearch.addEventListener('keyup', doSearch, false);
+          txtSearch.addEventListener('keydown', doSearch, false);
+          txtSearch.addEventListener('keypress', doSearch, false);
+          txtSearch.addEventListener('change', doSearch, false);
+          txtSearch.addEventListener('cut', doSearch, false);
+          txtSearch.addEventListener('paste', doSearch, false);
+
+          window.setInterval(doSearch, 50);
+        }, false);
+      // ]]>
+    </script>
+    <style type="text/css">
+     table#table {
+       border: 1px solid #000;
+       border-collapse: collapse;
+     }
+     table#table tr.empty {
+       display: none;
+     }
+     table#table th, table#table td {
+       border: 1px solid #000;
+       padding: 4px;
+       text-align: center;
+     }
+     table#table td {
+       max-width: 1.5em;
+       min-width: 1.5em;
+       cursor: pointer;
+     }
+     table#table th.rowId, table#table td.rowId {
+       max-width: 5em;
+       min-width: 5em;
+       text-align: right;
+     }
+     table#table td.empty {
+       cursor: default;
+     }
+     table#table td.empty, table#table td.faded {
+       border: 0;
+       background-color: #CCC;
+       opacity: 0.25;
+     }
+    </style>
+  </head>
+  <body>
+    <p>
+     search: <input type="text" id="txtSearch" size="80" />
+     <br />
+     to copy: <input type="text" id="txtToCopy" size="80" />
+    </p>
+    <table id="table">
+    </table>
+    <p id="pNumCharsFound">
+    </p>
+  </body>
+</html>
